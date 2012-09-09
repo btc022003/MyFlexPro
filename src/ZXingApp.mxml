@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" fontSize="12">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.google.zxing.BarcodeFormat;
+			import com.google.zxing.BinaryBitmap;
+			import com.google.zxing.BufferedImageLuminanceSource;
+			import com.google.zxing.DecodeHintType;
+			import com.google.zxing.MultiFormatReader;
+			import com.google.zxing.MultiFormatWriter;
+			import com.google.zxing.Result;
+			import com.google.zxing.client.result.ParsedResult;
+			import com.google.zxing.client.result.ResultParser;
+			import com.google.zxing.common.BitMatrix;
+			import com.google.zxing.common.HybridBinarizer;
+			import com.google.zxing.common.flexdatatypes.HashTable;
+			
+			import mx.controls.Alert;
+			import mx.graphics.codec.JPEGEncoder;
+			
+			private var fileRef:FileReference;
+			public function selectFile():void
+			{
+				// file open menu
+				fileRef = new FileReference();
+				var fileFilter4:FileFilter = new FileFilter('JPG','*.jpg');
+				var fileFilter1:FileFilter = new FileFilter('PNG','*.png');
+				var fileFilter2:FileFilter = new FileFilter('GIF','*.gif');
+				var fileFilter3:FileFilter = new FileFilter('All files','*.*');
+				fileRef.addEventListener(Event.SELECT, selectHandler);
+				fileRef.addEventListener(Event.COMPLETE,completeHandler);
+				
+				fileRef.browse([fileFilter4,
+					fileFilter1,
+					fileFilter2,
+					fileFilter3]);
+			}
+			public function selectHandler(event:Event):void
+			{
+				// try to load the image
+				fileRef.removeEventListener(Event.SELECT, selectHandler);
+				fileRef.load();
+			}
+			
+			public function completeHandler(event:Event):void
+			{
+				// image loaded succesfully
+				fileRef.removeEventListener(Event.COMPLETE,completeHandler);
+				img.load(fileRef.data);
+			}
+			
+			private var myWriter:MultiFormatWriter;
+			public function generate(barcodeType:BarcodeFormat,image:Object,contents:String,checkFunction:Function=null):void
+			{      
+				
+				if (barcodeType == BarcodeFormat.PDF417)
+				{
+					Alert.show("The output is equal to the core Java code but it is not decoding correctly");
+				}
+				
+				if (checkFunction != null)
+				{
+					contents = checkFunction(contents);
+					if (contents == null) { return;} // input check failed
+				}
+				myWriter = new MultiFormatWriter()
+				
+				try
+				{
+					// try to generate the data for the barcode
+					var result:BitMatrix = myWriter.encode(contents,barcodeType,image.width-100,image.height-100) as BitMatrix;
+				}
+				catch (e:Error)
+				{
+					Alert.show("An error occured when making the barcode :"+e.message);
+					return;
+				}
+				
+				var resultBits:Array = new Array(result.getWidth());
+				for (var i:int=0;i<result.getWidth();i++)
+				{
+					resultBits[i] = result._get(i,0);
+				}
+				
+				// map the result onto the image
+				var bmpd:BitmapData = new BitmapData(image.width, image.height, false, 0x009900);
+				var bmp:Bitmap = new Bitmap(bmpd);            	
+				var whitepixel:Boolean;
+				
+				for (var h:int=0;h<bmpd.height;h++)
+				{
+					for (var w:int=0;w<bmpd.width;w++)
+					{
+						
+						if ((w<50||w >= (image.width-50)) || ((h<50) || (h>=(image.height-50)))) 
+						{
+							// make a 50px border around each barcode
+							bmpd.setPixel(w,h, 0xFFFFFF);
+						}
+						else
+						{
+							if ((barcodeType == BarcodeFormat.PDF417) ||
+								(barcodeType == BarcodeFormat.QR_CODE))
+							{
+								whitepixel = (result._get(w-50,h-50) == 0);
+							}
+							else
+							{
+								whitepixel = (resultBits[w-50] == 0);
+							}
+							
+							if (whitepixel)
+							{
+								// white pixel
+								bmpd.setPixel(w,h, 0xFFFFFF);
+							}
+							else
+							{
+								// black pixel
+								bmpd.setPixel(w,h, 0x000000);
+							}
+						}		
+					}
+				}
+				_BitMapData = bmpd;
+				
+				image.source = bmp;
+			}
+			
+			public function decodeImage(appendOutput:Boolean=false):void
+			{
+				// did the user select an image?
+				if (this.img.source != "")
+				{
+					// show a message we are decoding
+					
+					if (!appendOutput) { this.resulttextarea.text = "*** decoding ***"; }
+					try
+					{
+						// is the image valid?
+						if (img.content != null)
+						{
+							// try to decode the image
+							this.decodeBitmapData((img.content as Bitmap).bitmapData,img.contentWidth, img.contentHeight,appendOutput);
+						}
+						else
+						{
+							// invalid image
+							if (!appendOutput) 
+							{ 
+								this.resulttextarea.text = "no image selected";	
+							}
+							else
+							{
+								this.resulttextarea.text += "no image selected";
+							}
+						}
+					}
+					catch(E:*)
+					{
+						this.resulttextarea.text = "*** Error in image data***"+E.message;
+					}
+				}
+			}
+			private var myReader:MultiFormatReader = new MultiFormatReader();
+			public function decodeBitmapData(bmpd:BitmapData, width:int, height:int, appendOutput:Boolean=false):void
+			{
+				// create the container to store the image width and height in
+				var lsource:BufferedImageLuminanceSource = new BufferedImageLuminanceSource(bmpd);
+				// convert it to a binary bitmap
+				var bitmap:BinaryBitmap = new BinaryBitmap(new HybridBinarizer(lsource));
+				// get all the hints
+				var ht:HashTable = null;
+				ht = this.getAllHints()
+				var res:Result = null;
+				try
+				{
+					// try to decode the image
+					res = myReader.decode(bitmap,ht);
+				}
+				catch(e:*) 
+				{
+					// failed
+					if (!appendOutput) 
+					{
+						this.resulttextarea.text = e.message;
+					}
+					else
+					{
+						this.resulttextarea.text += e.message;
+					}
+				}
+				
+				// did we find something?
+				if (res == null)
+				{
+					if (!appendOutput)
+					{
+						// no : we could not detect a valid barcode in the image
+						this.resulttextarea.text = "<<No decoder could read the barcode>>";
+					}
+					else
+					{
+						this.resulttextarea.text += "Could not decode image";
+					}
+				}
+				else
+				{
+					// yes : parse the result
+					var parsedResult:ParsedResult = ResultParser.parseResult(res);
+					// get a formatted string and display it in our textarea
+					if (!appendOutput)
+					{
+						this.resulttextarea.text = parsedResult.getDisplayResult();
+					}
+					else
+					{
+						this.resulttextarea.text += parsedResult.getDisplayResult();
+					}
+				}
+				
+				this.resulttextarea.text = EncodeUtf8(this.resulttextarea.text);
+			}
+			
+			public function getAllHints():HashTable
+			{
+				// get all hints from the user
+				var ht:HashTable = new HashTable();
+				ht.Add(DecodeHintType.POSSIBLE_FORMATS,BarcodeFormat.QR_CODE);
+				return ht;
+			}
+			
+			protected function btnSave_clickHandler(event:MouseEvent):void
+			{
+				saveClientImg();
+			}
+			
+			private var _BitMapData:BitmapData;
+			private function saveClientImg():void
+			{
+
+				var bmpImage:Bitmap = null;
+				var file:FileReference = new FileReference();	
+				var jpg:JPEGEncoder = new JPEGEncoder(100);
+				var byt:ByteArray = jpg.encode(_BitMapData);
+				file.save(byt,'img.jpg');
+			}
+			
+			/****
+			 * 重新编码字符串，防止出现乱码
+			 * *************/
+			private function EncodeUtf8(str : String):String  
+			{ 
+				var oriByteArr : ByteArray = new ByteArray(); 
+				oriByteArr.writeUTFBytes(str); 
+				var tempByteArr : ByteArray = new ByteArray(); 
+				for (var i:int = 0; i<oriByteArr.length; i++) { 
+					
+					if (oriByteArr[i] == 194) { 
+						tempByteArr.writeByte(oriByteArr[i+1]); 
+						i++; 
+					} else if (oriByteArr[i] == 195) { 
+						tempByteArr.writeByte(oriByteArr[i+1] + 64); 
+						i++; 
+					} else { 
+						tempByteArr.writeByte(oriByteArr[i]); 
+					} 
+					
+				} 
+				
+				tempByteArr.position = 0; 
+				return tempByteArr.readMultiByte(tempByteArr.bytesAvailable,"UTF-8"); 
+			} 
+			
+		]]>
+	</fx:Script>
+	<mx:TabNavigator creationPolicy="all">
+		<s:NavigatorContent width="100%" height="100%" label="二维码生成">
+			<s:VGroup>
+				<mx:ApplicationControlBar width="100%">
+					<s:Label text="二维码生成" fontWeight="bold" fontSize="14"/>
+				</mx:ApplicationControlBar>
+				<s:VGroup verticalCenter="0" horizontalCenter="0">
+					<s:HGroup verticalAlign="middle">
+						<s:Label text="文本"/>
+						<s:TextInput  text="二维码生成" id="QRINput"/>
+						<mx:Button label="生成" buttonDown="{this.generate(BarcodeFormat.QR_CODE,this.QRImage,this.QRINput.text,null);}"/>
+						<s:Button label="保存" click="btnSave_clickHandler(event)"/>
+					</s:HGroup>
+					<s:Group width="100%" height="100%">
+						<mx:Image id="QRImage" width="300" height="300" verticalCenter="0" horizontalCenter="0"/>
+					</s:Group>				
+				</s:VGroup>				
+			</s:VGroup>
+		</s:NavigatorContent>
+		<s:NavigatorContent width="100%" height="100%" label="二维码解析">
+			<s:VGroup>
+				<mx:ApplicationControlBar width="100%">
+					<s:Label text="二维码解析" fontWeight="bold" fontSize="14"/>
+				</mx:ApplicationControlBar>
+				<s:VGroup>
+					<s:HGroup>
+						<s:Button label="选择图片" click="selectFile()" />
+						<mx:Button label="解析" click="decodeImage()"/>
+					</s:HGroup>
+					<s:BorderContainer width="300" height="250" backgroundColor="white">
+						<mx:Image id="img" width="250" height="250" verticalCenter="0" horizontalCenter="0"/>	
+					</s:BorderContainer>
+					<s:HGroup>
+						<mx:Label text="内容 :"/>
+						<mx:TextArea id="resulttextarea"  />
+					</s:HGroup>			
+				</s:VGroup>
+			</s:VGroup>
+		</s:NavigatorContent>	
+	</mx:TabNavigator>
+	
+	
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+	</fx:Declarations>
+</s:Application>

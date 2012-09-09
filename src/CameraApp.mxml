@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx">
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import mx.controls.Alert;
+			import mx.graphics.codec.JPEGEncoder;
+			private function videoDisplay_creationComplete():void 
+			{
+				// try to attach the webcam to the videoDisplay
+				var camera:Camera = Camera.getCamera();
+				if (camera) 
+				{
+					if ((camera.width == -1) && ( camera.height == -1))
+					{
+						// no webcam seems to be attached -> hide videoDisplay
+						videoDisplay.width  = 0;
+						videoDisplay.height = 0;
+						this.videoDisplayLabel.visible = true;
+						this.buttonBox.visible = false;	
+					}
+					else
+					{
+						// webcam detected
+						
+						// change the default mode of the webcam
+						camera.setMode(380,380,5,true);
+						videoDisplay.width  = camera.width;
+						videoDisplay.height = camera.height;
+						this.videoDisplayLabel.visible = false;
+						this.buttonBox.visible = true;	
+						
+						videoDisplay.attachCamera(camera);
+					}
+				} else {
+					Alert.show("You don't seem to have a webcam.");
+				}
+			}
+			
+			protected function btnTakePic_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				var bmd:BitmapData = new BitmapData(this.videoDisplay.width, this.videoDisplay.height);
+				bmd.draw(videoDisplay);
+				var file:FileReference = new FileReference();	
+				var jpg:JPEGEncoder = new JPEGEncoder(100);
+				var byt:ByteArray = jpg.encode(bmd);
+				file.save(byt,'img.jpg');
+			}
+			
+		]]>
+	</fx:Script>
+	<s:Image height="100%" source="@Embed(source='bg.jpg')"  width="100%" scaleMode="stretch">
+		
+	</s:Image>
+	<s:Group verticalCenter="0" horizontalCenter="0">
+		
+		<mx:VBox verticalGap="0">
+			<mx:VideoDisplay id="videoDisplay"
+							 creationComplete="videoDisplay_creationComplete();"
+							 width="300"
+							 height="300" />
+			<mx:Label id="videoDisplayLabel" text="Camera not attached" visible="false"/>
+			<mx:HBox id="buttonBox" visible="true">
+				<mx:Button id="button"
+						   label="重新加载"
+						   click="videoDisplay_creationComplete();" />
+				<s:Button label="拍照" click="btnTakePic_clickHandler(event)"/>
+			</mx:HBox>
+		</mx:VBox>
+	</s:Group>
+	
+</s:Application>
